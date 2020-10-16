@@ -48,7 +48,8 @@ public class CountlyMessagingService extends FirebaseMessagingService {
             return;
         }
 
-        Boolean result = CountlyPush.displayNotification(getApplicationContext(), message, getApplicationContext().getApplicationInfo().icon, null);
+        CountlyPush.setNotificationAccentColor(255, 106, 105, 251);
+        Boolean result = CountlyPush.displayNotification(getApplicationContext(), message, getApplicationContext().getResources().getIdentifier("ic_notification", "mipmap", getPackageName()), null);
         if(Countly.sharedInstance().isLoggingEnabled()) {
             if (result == null) {
                 Log.i(Countly.TAG, "[CountlyMessagingService] Message wasn't sent from Countly server, so it cannot be handled by Countly SDK");
