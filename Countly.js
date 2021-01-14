@@ -24,7 +24,7 @@ if (Platform.OS.match("android")) {
 }
 
 // countly initialization
-Countly.init = async function(serverUrl, appKey, deviceId = ""){
+Countly.init = async function(serverUrl, appKey, deviceId){
 
     if(deviceId == "") {
         deviceId = null;
@@ -98,6 +98,18 @@ Countly.sendEvent = function(options){
 }
 
 /**
+ * Enable or disable automatic view tracking
+ * 
+ * @deprecated in 20.04.6
+ * 
+ */
+Countly.setViewTracking = async function(boolean) {
+    if(await CountlyReactNative.isLoggingEnabled()) {
+        console.log("[CountlyReactNative] setViewTracking is deprecated.");
+    }
+}
+
+/**
  * Record custom view to Countly.
  * 
  * @param {string} recordView - name of the view
@@ -119,8 +131,8 @@ Countly.recordView = function(recordView, segments){
 
 /**
  * 
- * Set Push notification messaging mode and callbacks for push notifications
- * Should be call after Countly init
+ * Set messaging mode for push notifications
+ * Should be call before Countly init
  */
 Countly.pushTokenType = function(tokenType, channelName, channelDescription){
     var args = [];
@@ -243,7 +255,9 @@ Countly.disableLocation = function(){
  * */
 Countly.getCurrentDeviceId = async function(){
     if(!await Countly.isInitialized()) {
-        console.warn('getCurrentDeviceId, init must be called before getCurrentDeviceId');
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.warn('[CountlyReactNative] getCurrentDeviceId, init must be called before getCurrentDeviceId');
+        }
         return "init must be called before getCurrentDeviceId";
       }
       const result = await CountlyReactNative.getCurrentDeviceId();
@@ -276,9 +290,11 @@ Countly.isCrashReportingEnabled = false;
  * Enable crash reporting to report unhandled crashes to Countly
  * Should be call before Countly init
  */
-Countly.enableCrashReporting = function(){
+Countly.enableCrashReporting = async function(){
     if (ErrorUtils && !Countly.isCrashReportingEnabled) {
-        console.log("Adding Countly JS error handler.");
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.log("[CountlyReactNative] Adding Countly JS error handler.");
+        }
         var previousHandler = ErrorUtils.getGlobalHandler();
         ErrorUtils.setGlobalHandler(function (error, isFatal) {
             var jsStackTrace = parseErrorStackLib(error);
@@ -486,6 +502,27 @@ Countly.giveConsent = function(args){
     CountlyReactNative.giveConsent(features);
 }
 
+/**
+ * 
+ * Give consent for specific features before init.
+ * Should be call after Countly init
+ */
+Countly.giveConsentInit = async function(args){
+    var features = [];
+    if (typeof args == "string") {
+        features.push(args);
+    }
+    else if(Array.isArray(args)) {
+        features = args;
+    }
+    else {
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.warn("[CountlyReactNative] giveConsentInit, unsupported data type '" + (typeof args) + "'");
+        }
+    }
+    CountlyReactNative.giveConsentInit(features);
+}
+
 Countly.removeConsent = function(args){
     var features = [];
     if (typeof args == "string") {
@@ -577,14 +614,100 @@ Countly.remoteConfigClearValues = async function(){
     const result = await CountlyReactNative.remoteConfigClearValues();
     return result;
 }
+/**
+ * Set's the text's for the different fields in the star rating dialog. Set value null if for some field you want to keep the old value
+ * 
+ * @param {String} starRatingTextTitle - dialog's title text (Only for Android)
+ * @param {String} starRatingTextMessage - dialog's message text 
+ * @param {String} starRatingTextDismiss - dialog's dismiss buttons text (Only for Android)
+ */
+Countly.setStarRatingDialogTexts = function(starRatingTextTitle, starRatingTextMessage, starRatingTextDismiss){
+    var args = [];
+    args.push(starRatingTextTitle);
+    args.push(starRatingTextMessage);
+    args.push(starRatingTextDismiss);
+    CountlyReactNative.setStarRatingDialogTexts(args);
+}
 
 Countly.showStarRating = function(callback){
     if(!callback){callback = function(){}};
     CountlyReactNative.showStarRating([], callback);
 }
 
-Countly.showFeedbackPopup = function(widgetId, closeButtonText,){
+Countly.showFeedbackPopup = function(widgetId, closeButtonText){
     CountlyReactNative.showFeedbackPopup([widgetId.toString() || "", closeButtonText.toString() || "Done"]);
+}
+
+/**
+ * Get a list of available feedback widgets as array of object to handle multiple widgets of same type.
+ */
+Countly.getFeedbackWidgets = async function(){
+     const result = await CountlyReactNative.getFeedbackWidgets();
+      return result;
+  }
+
+/**
+ * Get a list of available feedback widgets for this device ID
+ * @deprecated in 20.11.1 : use 'getFeedbackWidgets' intead of 'getAvailableFeedbackWidgets'.
+ * Using the old function it will not be possible to see all the available feedback widgets. 
+ * In case there are multiple ones for the same type, only the last one will be returned due to their id being overwritten in the type field.
+ * The newer function allow also to see the widgets 'name' field which can be further used to filter and identify specific widgets.
+ */
+Countly.getAvailableFeedbackWidgets = async function(){
+    const result = await CountlyReactNative.getAvailableFeedbackWidgets();
+     return result;
+ }
+
+/**
+ * Present a chosen feedback widget
+ * 
+ * @param {Object} feedbackWidget - feeback Widget with id, type and name
+ * @param {String} closeButtonText - text for cancel/close button
+ */  
+Countly.presentFeedbackWidgetObject = async function(feedbackWidget, closeButtonText){
+    if(!feedbackWidget) {
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.error("[CountlyReactNative] presentFeedbackWidgetObject, feedbackWidget should not be null or undefined");
+        }
+        return "feedbackWidget should not be null or undefined";
+    }
+    if(!feedbackWidget.id) {
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.error("[CountlyReactNative] presentFeedbackWidgetObject, feedbackWidget id should not be null or empty");
+        }
+        return "FeedbackWidget id should not be null or empty";
+    }
+    if(!feedbackWidget.type) {
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.error("[CountlyReactNative] presentFeedbackWidgetObject, feedbackWidget type should not be null or empty");
+        }
+        return "FeedbackWidget type should not be null or empty";
+    }
+    if (typeof closeButtonText != "string") { 
+            closeButtonText = "";
+            if(await CountlyReactNative.isLoggingEnabled()) {
+            console.warn("[CountlyReactNative] presentFeedbackWidgetObject, unsupported data type of closeButtonText : '" + (typeof args) + "'");
+        }
+    }
+    feedbackWidget.name = feedbackWidget.name || "";
+    closeButtonText = closeButtonText || "";
+    CountlyReactNative.presentFeedbackWidget([feedbackWidget.id, feedbackWidget.type, feedbackWidget.name, closeButtonText]);
+}
+
+/**
+* Present a chosen feedback widget
+* 
+* @param {String} widgetType - type of widget : "nps" or "survey"
+* @param {String} widgetId - id of widget to present
+* @param {String} closeButtonText - text for cancel/close button
+* @deprecated in 20.11.1 : use 'presentFeedbackWidgetObject' intead of 'presentFeedbackWidget'.
+*/  
+Countly.presentFeedbackWidget = function(widgetType, widgetId, closeButtonText){
+    var feedbackWidget = {
+        "id": widgetId,
+        "type": widgetType
+      };
+    Countly.presentFeedbackWidgetObject(feedbackWidget, closeButtonText)
 }
 
 /**
@@ -649,11 +772,67 @@ Countly.enableApm = function(){
 /**
  * 
  * Enable campaign attribution reporting to Countly.
+ * For iOS use "recordAttributionID" instead of "enableAttribution"
  * Should be call before Countly init
  */
-Countly.enableAttribution = function() {
-    CountlyReactNative.enableAttribution();
+Countly.enableAttribution = async function(attributionID = "") {
+    if (Platform.OS.match("ios")) {
+        if(attributionID == "") {
+            if(await CountlyReactNative.isLoggingEnabled()) {
+                console.error("[CountlyReactNative] enableAttribution, attribution Id for iOS can't be empty string");
+            }
+            return "attribution Id for iOS can't be empty string";
+        }
+        Countly.recordAttributionID(attributionID);
+    }
+    else {
+        CountlyReactNative.enableAttribution();
+    }
 }
+
+/**
+ * 
+ * set attribution Id for campaign attribution reporting.
+ * Currently implemented for iOS only
+ * For Android just call the enableAttribution to enable campaign attribution.
+ */
+Countly.recordAttributionID = function(attributionID){
+    if (!Platform.OS.match("ios")) return "recordAttributionID : To be implemented";
+    var args = [];
+    args.push(attributionID);
+    CountlyReactNative.recordAttributionID(args);
+}
+/**
+ * Replaces all requests with a different app key with the current app key.
+ * In request queue, if there are any request whose app key is different than the current app key,
+ * these requests' app key will be replaced with the current app key.
+ */
+Countly.replaceAllAppKeysInQueueWithCurrentAppKey = function(){
+    CountlyReactNative.replaceAllAppKeysInQueueWithCurrentAppKey();
+}
+/**
+ * Removes all requests with a different app key in request queue.
+ * In request queue, if there are any request whose app key is different than the current app key,
+ * these requests will be removed from request queue.
+ */
+Countly.removeDifferentAppKeysFromQueue = function(){
+  CountlyReactNative.removeDifferentAppKeysFromQueue()
+}
+
+
+/**
+ * Call this function when app is loaded, so that the app launch duration can be recorded.
+ * Should be call after init.
+ */
+Countly.appLoadingFinished = async function(){
+    if(!await Countly.isInitialized()) {
+        if(await CountlyReactNative.isLoggingEnabled()) {
+            console.warn('[CountlyReactNative] appLoadingFinished, init must be called before appLoadingFinished');
+        }
+        return "init must be called before appLoadingFinished";
+      }
+    CountlyReactNative.appLoadingFinished()
+  }
 
 /*
 Countly.initNative = function(){

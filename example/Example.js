@@ -8,6 +8,7 @@ var failureCodes = [400, 402, 405, 408, 500, 501, 502, 505];
 class Example extends Component {
     constructor(props) {
         super(props);
+        
         this.config = {};
 
         this.onInit = this.onInit.bind(this);
@@ -37,6 +38,7 @@ class Example extends Component {
     };
 
     componentDidMount(){
+      this.onInit();
     }
 
     onInit = async() => {
@@ -45,6 +47,7 @@ class Example extends Component {
         Countly.setLoggingEnabled(true); // Enable countly internal debugging logs
         Countly.enableCrashReporting(); // Enable crash reporting to report unhandled crashes to Countly
         Countly.setRequiresConsent(true); // Set that consent should be required for features to work.
+        Countly.giveConsentInit(["location", "sessions", "attribution", "push", "events", "views", "crashes", "users", "push", "star-rating", "apm", "feedback", "remote-config"]); // give conset for specific features before init.
         Countly.setLocationInit("TR", "Istanbul", "41.0082,28.9784", "10.2.33.12"); // Set user initial location.
 
         /** Optional settings for Countly initialisation */
@@ -52,23 +55,27 @@ class Example extends Component {
         // Countly.pinnedCertificates("count.ly.cer"); // It will ensure that connection is made with one of the public keys specified
         // Countly.setHttpPostForced(false); // Set to "true" if you want HTTP POST to be used for all requests
         Countly.enableApm(); // Enable APM features, which includes the recording of app start time.
-        Countly.enableAttribution(); // Enable to measure your marketing campaign performance by attributing installs from specific campaigns.
+        Countly.pushTokenType(Countly.messagingMode.DEVELOPMENT, "Channel Name", "Channel Description"); // Set messaging mode for push notifications
         
-        await Countly.init("https://master.count.ly", "5b77e4c785410351f32d8aa286d2383195d13b93", "123456"); // Initialize the countly SDK.
-
+        if (Platform.OS.match("ios")) {
+          Countly.recordAttributionID("ADVERTISING_ID");
+        }
+        else {
+          Countly.enableAttribution(); // Enable to measure your marketing campaign performance by attributing installs from specific campaigns.
+        }
+        Countly.setStarRatingDialogTexts("Title", "Message", "Dismiss");
+        await Countly.init("https://try.count.ly", "YOUR_APP_KEY"); // Initialize the countly SDK.
+        Countly.appLoadingFinished();
         /** 
          * Push notifications settings 
          * Should be call after init
         */
-        Countly.pushTokenType(Countly.messagingMode.DEVELOPMENT, "Channel Name", "Channel Description"); // Set messaging mode for push notifications
         Countly.registerForNotification(function(theNotification){
           console.log("Just received this notification data: " + JSON.stringify(theNotification));
           alert('theNotification: ' + JSON.stringify(theNotification));
         }); // Set callback to receive push notifications
         Countly.askForNotificationPermission(); // This method will ask for permission, enables push notification and send push token to countly server.
 
-        Countly.giveAllConsent(); // give consent for all features, should be call after init
-        // Countly.giveConsent(["events", "views"]); // give conset for some specific features, should be call after init.
       }
     }
 
@@ -330,8 +337,30 @@ class Example extends Component {
     };
 
     showFeedbackPopup(){
-      Countly.showFeedbackPopup("5e4254507975d006a22535fc", "Submit");
+      Countly.showFeedbackPopup("5f8c837a5294f7aae370067c", "Submit");
     }
+
+    showSurvey = function(){
+      Countly.getFeedbackWidgets().then((retrivedWidgets) => {
+          var surveyWidget =  retrivedWidgets.find(x => x.type === 'survey')
+          if(surveyWidget) {
+              Countly.presentFeedbackWidgetObject(surveyWidget, "Close")
+          }
+      },(err) => {
+          console.error("showSurvey getFeedbackWidgets error : " +err);
+      });
+  }
+
+  showNPS = function(){
+    Countly.getFeedbackWidgets().then((retrivedWidgets) => {
+      var npsWidget =  retrivedWidgets.find(x => x.type === 'nps')
+      if(npsWidget) {
+          Countly.presentFeedbackWidgetObject(npsWidget, "Close")
+      }
+  },(err) => {
+      console.error("showNPS getFeedbackWidgets error : " +err);
+  });
+  }
 
     addCrashLog(){
       Countly.addCrashLog("My crash log in string.");
@@ -501,6 +530,8 @@ class Example extends Component {
             < Button onPress = { this.disableLocation } title = "Disable Location" color = "#00b5ad"> </Button>
             < Button onPress = { this.showStarRating } title = "Show Star Rating Model" color = "#00b5ad"> </Button>
             < Button onPress = { this.showFeedbackPopup } title = "Show FeedBack Model" color = "#00b5ad"> </Button>
+            < Button onPress = { this.showSurvey } title = "Show Survey" color = "#00b5ad"> </Button>
+            < Button onPress = { this.showNPS } title = "Show NPS" color = "#00b5ad"> </Button>
             < Button onPress = { this.eventSendThreshold } title = "Set Event Threshold" color = "#00b5ad"> </Button>
             < Button onPress = { this.setCustomCrashSegments } title = "Set Custom Crash Segment" color = "#00b5ad"> </Button>
             <Text style={[{textAlign: 'center'}]}>Other Methods End</Text>

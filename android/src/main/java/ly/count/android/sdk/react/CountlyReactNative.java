@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.util.Log;
 
 import com.facebook.react.bridge.Callback;
+import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -40,8 +41,14 @@ import android.app.NotificationChannel;
 import ly.count.android.sdk.StarRatingCallback;
 import ly.count.android.sdk.messaging.CountlyPush;
 
+
 import org.json.JSONObject;
 
+import ly.count.android.sdk.ModuleFeedback.*;
+import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableNativeArray;
+import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.google.firebase.iid.FirebaseInstanceId;
 import com.google.firebase.iid.InstanceIdResult;
@@ -64,8 +71,10 @@ class CountlyReactException extends Exception {
     }
 }
 
-public class CountlyReactNative extends ReactContextBaseJavaModule {
-    private String COUNTLY_RN_SDK_VERSION_STRING = "20.04.6";
+public class CountlyReactNative extends ReactContextBaseJavaModule implements LifecycleEventListener {
+
+    public static final String TAG = "CountlyRNPlugin";
+    private String COUNTLY_RN_SDK_VERSION_STRING = "20.11.2";
     private String COUNTLY_RN_SDK_NAME = "js-rnb-android";
 
     private static CountlyConfig config = new CountlyConfig();
@@ -75,6 +84,8 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     private static CCallback notificationListener = null;
     private static String lastStoredNotification = null;
     protected static boolean loggingEnabled = false;
+
+    private boolean isOnResumeBeforeInit = false;
 
     private ReactApplicationContext _reactContext;
 
@@ -88,12 +99,17 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
             Countly.CountlyFeatureNames.users,
             Countly.CountlyFeatureNames.push,
             Countly.CountlyFeatureNames.starRating,
-            Countly.CountlyFeatureNames.apm
+            Countly.CountlyFeatureNames.apm,
+            Countly.CountlyFeatureNames.feedback,
+            Countly.CountlyFeatureNames.remoteConfig
     ));
 
     public CountlyReactNative(ReactApplicationContext reactContext) {
         super(reactContext);
         _reactContext = reactContext;
+        this.config.enableManualAppLoadedTrigger();
+        this.config.enableManualForegroundBackgroundTriggerAPM();
+        reactContext.addLifecycleEventListener(this);
     }
     @Override
     public String getName() {
@@ -106,7 +122,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void init(ReadableArray args, Promise promise){
-        Log.d(Countly.TAG, "[CountlyReactNative] Initializing...");
+        log("Initializing...", LogLevel.DEBUG);
         String serverUrl = args.getString(0);
         String appKey = args.getString(1);
         String deviceId = args.getString(2);
@@ -117,8 +133,13 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
           Countly.sharedInstance().COUNTLY_SDK_VERSION_STRING = COUNTLY_RN_SDK_VERSION_STRING;
 
         this.config.setContext(_reactContext);
-        Activity activity = getCurrentActivity();
-        this.config.setApplication(activity.getApplication());
+        Activity activity = getActivity();
+        if (activity != null) {
+            this.config.setApplication(activity.getApplication());
+        }
+        else {
+            log("init, Activity is null, some features will not work", LogLevel.WARNING);
+        }
         if(deviceId == null || "".equals(deviceId)){
         }else{
             if(deviceId.equals("TemporaryDeviceID")){
@@ -128,6 +149,10 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
             }
         }
         Countly.sharedInstance().init(this.config);
+        if(isOnResumeBeforeInit) {
+            isOnResumeBeforeInit = false;
+            Countly.sharedInstance().apm().triggerForeground();
+        }
         promise.resolve("Success");
     }
 
@@ -160,11 +185,11 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     public void getCurrentDeviceId(ReadableArray args, final Callback myCallback){
         String deviceID = Countly.sharedInstance().getDeviceID();
         if (deviceID == null) {
-            Log.d(Countly.TAG, "[CountlyReactNative] getCurrentDeviceId, deviceIdNotFound");
+            log("getCurrentDeviceId, deviceIdNotFound", LogLevel.DEBUG);
             myCallback.invoke("deviceIdNotFound");
         }
         else {
-            Log.d(Countly.TAG, "[CountlyReactNative] getCurrentDeviceId: " + deviceID);
+            log("getCurrentDeviceId: " + deviceID, LogLevel.DEBUG);
             myCallback.invoke(deviceID);
         }
     }
@@ -173,11 +198,11 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     public void getDeviceIdAuthor(ReadableArray args, final Callback myCallback){
         DeviceId.Type deviceIDType = Countly.sharedInstance().getDeviceIDType();
         if (deviceIDType == null) {
-            Log.d(Countly.TAG, "[CountlyReactNative] getDeviceIdAuthor, deviceIdAuthorNotFound");
+            log("getDeviceIdAuthor, deviceIdAuthorNotFound", LogLevel.DEBUG);
             myCallback.invoke("deviceIdAuthorNotFound");
         }
         else {
-            Log.d(Countly.TAG, "[CountlyReactNative] getDeviceIdAuthor: " + deviceIDType);
+            log("getDeviceIdAuthor: " + deviceIDType, LogLevel.DEBUG);
             if(deviceIDType == DeviceId.Type.DEVELOPER_SUPPLIED){
                 myCallback.invoke("developerProvided");
             }else{
@@ -248,7 +273,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
                 }
             }
         }
-        Log.i(Countly.TAG, "[CountlyReactNative] Certificate failed.");
+        log("Certificate failed.", LogLevel.INFO);
         return new String[]{};
     }
 
@@ -428,6 +453,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void setUserData(ReadableArray args){
+        Countly.sharedInstance();
         Map<String, String> bundle = new HashMap<String, String>();
         bundle.put("name", args.getString(0));
         bundle.put("username", args.getString(1));
@@ -453,11 +479,8 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
         int messagingMode = Integer.parseInt(args.getString(0));
         this.channelName = args.getString(1);
         this.channelDescription = args.getString(2);
-
-        if (loggingEnabled) {
-            Log.i(Countly.TAG, "[CountlyReactNative] pushTokenType [" + messagingMode + "][" + this.channelName + "][" + this.channelDescription + "]");
-        }
-
+        log("pushTokenType [" + messagingMode + "][" + this.channelName + "][" + this.channelDescription + "]", LogLevel.INFO);
+        
         if (messagingMode == 0) {
             this.messagingMode = Countly.CountlyMessagingMode.PRODUCTION;
         } else {
@@ -469,25 +492,19 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     public static void onNotification(Map<String, String> notification){
         JSONObject json = new JSONObject(notification);
         String notificationString = json.toString();
-
-        if(loggingEnabled) {
-            Log.i(Countly.TAG, "[CountlyReactNative] onNotification [" + notificationString + "]");
-        }
-
+        log("onNotification [" + notificationString + "]", LogLevel.INFO);
+        
         if(notificationListener != null){
             //there is a listener for notifications, send the just received notification to it
-            if(loggingEnabled) {
-                Log.i(Countly.TAG, "[CountlyReactNative] onNotification, listener exists");
-            }
+            log("onNotification, listener exists", LogLevel.INFO);
             notificationListener.callback(notificationString);
         }else{
             //there is no listener for notifications. Store this notification for when a listener is created
-            if(loggingEnabled) {
-                Log.i(Countly.TAG, "[CountlyReactNative] onNotification, listener does not exist");
-            }
+            log("onNotification, listener does not exist", LogLevel.INFO);
             lastStoredNotification = notificationString;
         }
     }
+
     public interface CCallback {
         void callback(String result);
     }
@@ -497,17 +514,13 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
         notificationListener = new CCallback(){
             @Override
             public void callback(String result) {
-                if(loggingEnabled) {
-                    Log.w(Countly.TAG, "[CountlyReactNative] registerForNotification callback result [" + result + "]");
-                }
+                log("registerForNotification callback result [" + result + "]", LogLevel.WARNING);
                 ((ReactApplicationContext) context)
                         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
                         .emit("onCountlyPushNotification", result);
             }
         };
-        if(loggingEnabled) {
-            Log.i(Countly.TAG, "[CountlyReactNative] registerForNotification theCallback");
-        }
+        log("registerForNotification theCallback", LogLevel.INFO);
         if(lastStoredNotification != null){
             notificationListener.callback(lastStoredNotification);
             lastStoredNotification = null;
@@ -516,7 +529,11 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void askForNotificationPermission(ReadableArray args){
-        Activity activity = this._reactContext.getCurrentActivity();
+        Activity activity = this.getActivity();
+        if (activity == null) {
+            log("askForNotificationPermission failed, Activity is null", LogLevel.ERROR);
+            return;
+        }
         Context context = this._reactContext;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) context.getSystemService(context.NOTIFICATION_SERVICE);
@@ -533,9 +550,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
                     @Override
                     public void onComplete(Task<InstanceIdResult> task) {
                         if (!task.isSuccessful()) {
-                            if(loggingEnabled) {
-                                Log.w(Countly.TAG, "[CountlyReactNative] getInstanceId failed", task.getException());
-                            }
+                            log("getInstanceId failed", task.getException(), LogLevel.WARNING);
                             return;
                         }
                         String token = task.getResult().getToken();
@@ -546,7 +561,12 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void start(){
-        Countly.sharedInstance().onStart(getCurrentActivity());
+        Activity activity = this.getActivity();
+        if (activity == null) {
+            log("start failed, Activity is null", LogLevel.ERROR);
+            return;
+        }
+        Countly.sharedInstance().onStart(activity);
     }
 
     @ReactMethod
@@ -556,6 +576,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_setProperty(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         String keyValue = args.getString(1);
         Countly.userData.setProperty(keyName, keyValue);
@@ -564,6 +585,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_increment(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         Countly.userData.increment(keyName);
         Countly.userData.save();
@@ -571,6 +593,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_incrementBy(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         int keyIncrement = Integer.parseInt(args.getString(1));
         Countly.userData.incrementBy(keyName, keyIncrement);
@@ -579,6 +602,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_multiply(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         int multiplyValue = Integer.parseInt(args.getString(1));
         Countly.userData.multiply(keyName, multiplyValue);
@@ -587,6 +611,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_saveMax(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         int maxScore = Integer.parseInt(args.getString(1));
         Countly.userData.saveMax(keyName, maxScore);
@@ -595,6 +620,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_saveMin(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         int minScore = Integer.parseInt(args.getString(1));
         Countly.userData.saveMin(keyName, minScore);
@@ -603,6 +629,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_setOnce(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         String minScore = args.getString(1);
         Countly.userData.setOnce(keyName, minScore);
@@ -611,6 +638,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_pushUniqueValue(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         String keyValue = args.getString(1);
         Countly.userData.pushUniqueValue(keyName, keyValue);
@@ -619,6 +647,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_pushValue(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         String keyValue = args.getString(1);
         Countly.userData.pushValue(keyName, keyValue);
@@ -627,6 +656,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void userData_pullValue(ReadableArray args){
+        Countly.sharedInstance();
         String keyName = args.getString(0);
         String keyValue = args.getString(1);
         Countly.userData.pullValue(keyName, keyValue);
@@ -641,6 +671,21 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void giveConsentInit(ReadableArray featureNames){
+        List<String> features = new ArrayList<>();
+        for (int i = 0; i < featureNames.size(); i++) {
+            String featureName = featureNames.getString(i);
+            if (validConsentFeatureNames.contains(featureName)) {
+                features.add(featureName);
+            }
+            else {
+                log("Not a valid consent feature to add: " + featureName, LogLevel.DEBUG);
+            }
+        }
+        this.config.setConsentEnabled(features.toArray(new String[features.size()]));
+    }
+
+    @ReactMethod
     public void giveConsent(ReadableArray featureNames){
         List<String> features = new ArrayList<>();
         for (int i = 0; i < featureNames.size(); i++) {
@@ -649,9 +694,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
                 features.add(featureName);
             }
             else {
-                if(loggingEnabled) {
-                    Log.d(Countly.TAG, "[CountlyReactNative] Not a valid consent feature to add: " + featureName);
-                }
+                log("Not a valid consent feature to add: " + featureName, LogLevel.DEBUG);
             }
         }
         Countly.sharedInstance().consent().giveConsent(features.toArray(new String[features.size()]));
@@ -666,9 +709,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
                 features.add(featureName);
             }
             else {
-                if(loggingEnabled) {
-                    Log.d(Countly.TAG, "[CountlyReactNative] Not a valid consent feature to remove: " + featureName);
-                }
+                log("Not a valid consent feature to remove: " + featureName, LogLevel.DEBUG);
             }
         }
         Countly.sharedInstance().consent().removeConsent(features.toArray(new String[features.size()]));
@@ -749,12 +790,12 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
         String keyName = args.getString(0);
         Object keyValue = Countly.sharedInstance().remoteConfig().getValueForKey(keyName);
         if (keyValue == null) {
-            Log.d(Countly.TAG, "[CountlyReactNative] getRemoteConfigValueForKey, [" + keyName + "]: ConfigKeyNotFound");
+            log("getRemoteConfigValueForKey, [" + keyName + "]: ConfigKeyNotFound", LogLevel.DEBUG);
             myCallback.invoke("ConfigKeyNotFound");
         }
         else {
             String resultString = (keyValue).toString();
-            Log.d(Countly.TAG, "[CountlyReactNative] getRemoteConfigValueForKey, [" + keyName + "]: " + resultString);
+            log("getRemoteConfigValueForKey, [" + keyName + "]: " + resultString, LogLevel.DEBUG);
             myCallback.invoke(resultString);
         }
     }
@@ -763,12 +804,12 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     public void getRemoteConfigValueForKeyP(String keyName, Promise promise){
         Object keyValue = Countly.sharedInstance().remoteConfig().getValueForKey(keyName);
         if (keyValue == null) {
-            Log.d(Countly.TAG, "[CountlyReactNative] getRemoteConfigValueForKeyP, [" + keyName + "]: ConfigKeyNotFound");
+            log("getRemoteConfigValueForKeyP, [" + keyName + "]: ConfigKeyNotFound", LogLevel.DEBUG);
             promise.reject("ConfigKeyNotFound", null, null, null);
         }
         else {
             String resultString = (keyValue).toString();
-            Log.d(Countly.TAG, "[CountlyReactNative] getRemoteConfigValueForKeyP, [" + keyName + "]: " + resultString);
+            log("getRemoteConfigValueForKeyP, [" + keyName + "]: " + resultString, LogLevel.DEBUG);
             promise.resolve(resultString);
         }
     }
@@ -778,10 +819,19 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
         Countly.sharedInstance().remoteConfig().clearStoredValues();
         promise.resolve("Remote Config Cleared.");
     }
-
+    @ReactMethod
+    public void setStarRatingDialogTexts(ReadableArray args) {
+        this.config.setStarRatingTextTitle(args.getString(0));
+        this.config.setStarRatingTextMessage(args.getString(1));
+        this.config.setStarRatingTextDismiss(args.getString(2));
+    }
     @ReactMethod
     public void showStarRating(ReadableArray args, final Callback callback){
-        Activity activity = getCurrentActivity();
+        Activity activity = getActivity();
+        if (activity == null) {
+            log("showStarRating failed, Activity is null", LogLevel.ERROR);
+            return;
+        }
         Countly.sharedInstance().ratings().showStarRating(activity, new StarRatingCallback(){
 
             @Override
@@ -799,11 +849,98 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void showFeedbackPopup(ReadableArray args){
+        Activity activity = getActivity();
+        if (activity == null) {
+            log("showFeedbackPopup failed, Activity is null", LogLevel.ERROR);
+            return;
+        }
         String widgetId = args.getString(0);
         String closeFeedBackButton = args.getString(1);
-        Activity activity = getCurrentActivity();
         Countly.sharedInstance().ratings().showFeedbackPopup( widgetId, closeFeedBackButton, activity, null);
     }
+
+    @ReactMethod
+    public void getFeedbackWidgets(final Promise promise)
+     {
+        Countly.sharedInstance().feedback().getAvailableFeedbackWidgets(new RetrieveFeedbackWidgets() {
+            @Override
+            public void onFinished(List<CountlyFeedbackWidget> retrievedWidgets, String error) {
+                if(error != null) {
+                    promise.reject("getFeedbackWidgets", error);
+                    return;
+                }
+                WritableArray retrievedWidgetsArray = new WritableNativeArray();
+                for (CountlyFeedbackWidget presentableFeedback : retrievedWidgets) {
+                    WritableMap feedbackWidget = new WritableNativeMap();
+                    feedbackWidget.putString("id", presentableFeedback.widgetId);
+                    feedbackWidget.putString("type", presentableFeedback.type.name());
+                    feedbackWidget.putString("name", presentableFeedback.name);
+                    retrievedWidgetsArray.pushMap(feedbackWidget);
+                }
+                promise.resolve(retrievedWidgetsArray);
+            }
+        });
+    } 
+
+    @ReactMethod
+    public void getAvailableFeedbackWidgets(final Promise promise)
+     {
+        Countly.sharedInstance().feedback().getAvailableFeedbackWidgets(new RetrieveFeedbackWidgets() {
+            @Override
+            public void onFinished(List<CountlyFeedbackWidget> retrievedWidgets, String error) {
+                if(error != null) {
+                    promise.reject("getAvailableFeedbackWidgets", error);
+                    return;
+                }
+                WritableMap retrievedWidgetsMap = new WritableNativeMap();
+                for (CountlyFeedbackWidget presentableFeedback : retrievedWidgets) {
+                    retrievedWidgetsMap.putString(presentableFeedback.type.name(), presentableFeedback.widgetId);
+                }
+                promise.resolve(retrievedWidgetsMap);
+            }
+        });
+    } 
+
+    @ReactMethod
+    public void presentFeedbackWidget(ReadableArray args, final Promise promise) {
+        Activity activity = getActivity();
+        if (activity == null) {
+            log("presentFeedbackWidget failed : Activity is null", LogLevel.ERROR);
+            promise.reject("presentFeedbackWidget Failed", "Activity is null");
+            return;
+        }
+        String widgetId = args.getString(0);
+        String type = args.getString(1);
+        String name = args.getString(2);
+        String closeBtnText = args.getString(3);
+
+        CountlyFeedbackWidget presentableFeedback = new CountlyFeedbackWidget();
+        presentableFeedback.widgetId = widgetId;
+        presentableFeedback.type = FeedbackWidgetType.valueOf(type);
+        presentableFeedback.name = name;
+        Countly.sharedInstance().feedback().presentFeedbackWidget(presentableFeedback, activity, closeBtnText, new FeedbackCallback() {
+            @Override
+            public void onFinished(String error) {
+                if(error != null) {
+                    promise.reject("presentFeedbackWidget", error);
+                }
+                else {
+                    promise.resolve("presentFeedbackWidget success");
+                }
+            }
+        });
+    } 
+    
+
+    @ReactMethod
+    public void replaceAllAppKeysInQueueWithCurrentAppKey() {
+        Countly.sharedInstance().requestQueueOverwriteAppKeys();
+    } 
+    
+    @ReactMethod
+    public void removeDifferentAppKeysFromQueue() {
+        Countly.sharedInstance().requestQueueEraseAppKeysRequests();
+    } 
 
     @ReactMethod
     public void setEventSendThreshold(ReadableArray args){
@@ -821,12 +958,12 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
     @ReactMethod
     public void cancelTrace(ReadableArray args){
         String traceKey = args.getString(0);
-        // Countly.sharedInstance().apm().cancelTrace(traceKey);
+        Countly.sharedInstance().apm().cancelTrace(traceKey);
     }
 
     @ReactMethod
     public void clearAllTraces(ReadableArray args){
-        // Countly.sharedInstance().apm().clearAllTrace();
+        Countly.sharedInstance().apm().cancelAllTraces();
     }
 
     @ReactMethod
@@ -837,9 +974,7 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
             try{
                 customMetric.put(args.getString(i), Integer.parseInt(args.getString(i + 1)));
             }catch(Exception exception){
-                if(loggingEnabled){
-                    Log.e(Countly.TAG, "[CountlyReactNative] endTrace, could not parse metrics, skipping it. ");
-                }
+                log("endTrace, could not parse metrics, skipping it. ", LogLevel.ERROR);
             }
         }
         Countly.sharedInstance().apm().endTrace(traceKey, customMetric);
@@ -852,13 +987,11 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
             int responseCode = Integer.parseInt(args.getString(1));
             int requestPayloadSize = Integer.parseInt(args.getString(2));
             int responsePayloadSize = Integer.parseInt(args.getString(3));
-            int startTime = Integer.parseInt(args.getString(4));
-            int endTime = Integer.parseInt(args.getString(5));
-            // Countly.sharedInstance().apm().endNetworkRequest(networkTraceKey, null, responseCode, requestPayloadSize, responsePayloadSize);
+            long startTime = Long.parseLong(args.getString(4));
+            long endTime = Long.parseLong(args.getString(5));
+            Countly.sharedInstance().apm().recordNetworkTrace(networkTraceKey, responseCode, requestPayloadSize, responsePayloadSize, startTime, endTime);
         }catch(Exception exception){
-            if(loggingEnabled){
-                Log.e(Countly.TAG, "Exception occured at recordNetworkTrace method: " +exception.toString());
-            }
+            log("Exception occured at recordNetworkTrace method: " + exception.toString(), LogLevel.ERROR);
         }
     }
 
@@ -872,5 +1005,74 @@ public class CountlyReactNative extends ReactContextBaseJavaModule {
         this.config.setEnableAttribution(true);
     }
 
+    @ReactMethod
+    public void recordAttributionID(ReadableArray args){
+        String attributionID = args.getString(0);
+        log("recordAttributionID: Not implemented for Android", LogLevel.DEBUG);
+    }
+
+    @ReactMethod
+    public void appLoadingFinished(){
+        Countly.sharedInstance().apm().setAppIsLoaded();
+    }
+    
+    enum LogLevel {INFO, DEBUG, VERBOSE, WARNING, ERROR}
+    static void log(String message, LogLevel logLevel)  {
+        log(message, null, logLevel);
+    }
+
+    static void log(String message, Throwable tr, LogLevel logLevel)  {
+        if(!loggingEnabled) {
+            return;
+        }
+        switch (logLevel) {
+            case INFO:
+                Log.i(TAG, message, tr);
+                break;
+            case DEBUG:
+                Log.d(TAG, message, tr);
+                break;
+            case WARNING:
+                Log.w(TAG, message, tr);
+                break;
+            case ERROR:
+                Log.e(TAG, message, tr);
+                break;
+            case VERBOSE:
+                Log.v(TAG, message, tr);
+                break;
+        }
+    }
+
+    Activity getActivity() {
+        Activity activity = getCurrentActivity();
+        if(activity == null && _reactContext != null)
+        {
+            activity = _reactContext.getCurrentActivity();
+        }
+        return activity;
+    }
+
+    @Override
+    public void onHostResume() {
+        if(Countly.sharedInstance().isInitialized()) {
+            Countly.sharedInstance().apm().triggerForeground();
+        }
+        else {
+            isOnResumeBeforeInit = true;
+        }
+    }
+
+    @Override
+    public void onHostPause() {
+        if(Countly.sharedInstance().isInitialized()) {
+            Countly.sharedInstance().apm().triggerBackground();
+        }
+    }
+
+    @Override
+    public void onHostDestroy() {
+
+    }
 
 }

@@ -33,6 +33,7 @@ typedef void (^Result)(id _Nullable result);
 - (void)userData_saveMin:(NSArray*_Nullable)arguments;
 - (void)demo:(NSArray*_Nullable)arguments;
 - (void)setRequiresConsent:(NSArray*_Nullable)arguments;
+- (void)giveConsentInit:(NSArray*_Nullable)arguments;
 - (void)giveConsent:(NSArray*_Nullable)arguments;
 - (void)removeConsent:(NSArray*_Nullable)arguments;
 - (void)giveAllConsent;
@@ -43,6 +44,9 @@ typedef void (^Result)(id _Nullable result);
 - (void)getRemoteConfigValueForKey:(NSArray*_Nullable)arguments callback:(RCTResponseSenderBlock _Nullable)callback;
 - (void)showStarRating:(NSArray*_Nullable)arguments callback:(RCTResponseSenderBlock _Nullable)callback;
 - (void)showFeedbackPopup:(NSArray*_Nullable)arguments;
+- (void)presentFeedbackWidget:(NSArray*_Nullable)arguments;
+- (void)replaceAllAppKeysInQueueWithCurrentAppKey;
+- (void)removeDifferentAppKeysFromQueue;
 - (void)setEventSendThreshold:(NSArray*_Nullable)arguments;
 - (void)pushTokenType:(NSArray*_Nullable)arguments;
 - (void)sendPushToken:(NSArray*_Nullable)arguments;
@@ -62,4 +66,6 @@ typedef void (^Result)(id _Nullable result);
 - (void)enableApm:(NSArray*_Nullable)arguments;
 
 - (void)enableAttribution;
+- (void)recordAttributionID:(NSArray*_Nullable)arguments;
+- (void)appLoadingFinished;
 @end
