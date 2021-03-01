@@ -21,7 +21,7 @@
 + (CountlyFeedbackWidget *)createWithDictionary:(NSDictionary *)dictionary;
 @end
 
-NSString* const kCountlyReactNativeSDKVersion = @"20.11.2";
+NSString* const kCountlyReactNativeSDKVersion = @"20.11.5";
 NSString* const kCountlyReactNativeSDKName = @"js-rnb-ios";
 
 CountlyConfig* config = nil;
@@ -29,6 +29,7 @@ NSDictionary *lastStoredNotification = nil;
 Result notificationListener = nil;
 NSMutableArray *notificationIDs = nil;        // alloc here
 NSMutableArray<CLYFeature>* countlyFeatures = nil;
+BOOL enablePushNotifications = true;
 
 @implementation CountlyReactNative
 
@@ -43,36 +44,32 @@ RCT_REMAP_METHOD(init,
                  initWithResolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject)
 {
-  NSString* serverurl = [arguments objectAtIndex:0];
-  NSString* appkey = [arguments objectAtIndex:1];
-  NSString* deviceID = [arguments objectAtIndex:2];
+  dispatch_async(dispatch_get_main_queue(), ^ {
+    NSString* serverurl = [arguments objectAtIndex:0];
+    NSString* appkey = [arguments objectAtIndex:1];
+    NSString* deviceID = [arguments objectAtIndex:2];
 
-  if (config == nil){
-    config = CountlyConfig.new;
-  }
-  
-  if(deviceID != nil && deviceID != (NSString *)[NSNull null] && ![deviceID  isEqual: @""]){
-    config.deviceID = deviceID;
-  }
-  config.appKey = appkey;
-  config.host = serverurl;
+    if (config == nil){
+      config = CountlyConfig.new;
+    }
+    
+    if(deviceID != nil && deviceID != (NSString *)[NSNull null] && ![deviceID  isEqual: @""]){
+      config.deviceID = deviceID;
+    }
+    config.appKey = appkey;
+    config.host = serverurl;
 
-  CountlyCommon.sharedInstance.SDKName = kCountlyReactNativeSDKName;
-  CountlyCommon.sharedInstance.SDKVersion = kCountlyReactNativeSDKVersion;
+    CountlyCommon.sharedInstance.SDKName = kCountlyReactNativeSDKName;
+    CountlyCommon.sharedInstance.SDKVersion = kCountlyReactNativeSDKVersion;
+    if(enablePushNotifications) {
+      [self addCountlyFeature:CLYPushNotifications];
+    }
 
-#ifndef COUNTLY_EXCLUDE_PUSHNOTIFICATIONS
-  [self addCountlyFeature:CLYPushNotifications];
-#endif
-
-  if (serverurl != nil && [serverurl length] > 0) {
-      dispatch_async(dispatch_get_main_queue(), ^
-      {
-          [[Countly sharedInstance] startWithConfig:config];
-          
-          resolve(@"Success");
-      });
-  }
-
+    if (serverurl != nil && [serverurl length] > 0) {
+      [[Countly sharedInstance] startWithConfig:config];
+      resolve(@"Success");
+    }
+  });
 }
 
 RCT_EXPORT_METHOD(event:(NSArray*)arguments)
@@ -175,6 +172,12 @@ RCT_EXPORT_METHOD(setUserData:(NSArray*)arguments)
   });
 }
 
+RCT_EXPORT_METHOD(disablePushNotifications)
+{
+  dispatch_async(dispatch_get_main_queue(), ^ {
+    enablePushNotifications = false;
+  });
+}
 
 RCT_EXPORT_METHOD(sendPushToken:(NSArray*)arguments)
 {
@@ -211,17 +214,16 @@ RCT_EXPORT_METHOD(pushTokenType:(NSArray*)arguments)
 
 RCT_EXPORT_METHOD(askForNotificationPermission:(NSArray*)arguments)
 {
-#ifndef COUNTLY_EXCLUDE_PUSHNOTIFICATIONS
   dispatch_async(dispatch_get_main_queue(), ^ {
   [Countly.sharedInstance askForNotificationPermission];
   });
-#endif
 }
 - (void) saveListener:(Result) result{
     notificationListener = result;
 }
 RCT_EXPORT_METHOD(registerForNotification:(NSArray*)arguments)
 {
+  dispatch_async(dispatch_get_main_queue(), ^ {
     [self saveListener: ^(id  _Nullable result) {
          [self sendEventWithName:@"onCountlyPushNotification" body: [CountlyReactNative toJSON:lastStoredNotification]];
          lastStoredNotification = nil;
@@ -230,6 +232,8 @@ RCT_EXPORT_METHOD(registerForNotification:(NSArray*)arguments)
         [self sendEventWithName:@"onCountlyPushNotification" body: [CountlyReactNative toJSON:lastStoredNotification]];
         lastStoredNotification = nil;
     }
+  });
+    
 };
 
 + (void)onNotification:(NSDictionary *)notificationMessage

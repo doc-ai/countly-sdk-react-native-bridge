@@ -1,3 +1,19 @@
+## 20.11.5
+* iOS thread safety added to make all function calls on main thread.
+
+## 20.11.4
+* Android session start issue fixed.
+* Updated underlying android SDK to 20.11.5
+
+## 20.11.4-RC2
+* Additional checks added in android for Google vulnerability issue.
+* INSTALL_REFERRER intent removed from SDK manifest file, for attribution analytics and install campaigns we recommend adding INSTALL_REFERRER intent in your application manifest file. Check documentation for more information.
+* Updated underlying android SDK to 20.11.5-RC
+
+## 20.11.3
+* Added "disablePushNotifications" method to disable push notifications for iOS.
+* Updated underlying android SDK to 20.11.3
+
 ## 20.11.2
 * !! Due to cocoapods issue with Xcode 12, we have added the iOS SDK as source code instead of Pod. Due to that change if you have already add the reference of files "CountlyNotificationService.h/m" then you need to update these files references by adding the files from "Pods/Development Pods/CountlyReactNative" and remove the old reference files.
 
